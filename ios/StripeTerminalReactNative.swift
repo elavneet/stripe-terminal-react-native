@@ -1,5 +1,6 @@
 import StripeTerminal
 import Foundation
+import CoreNFC
 
 enum ReactNativeConstants: String, CaseIterable {
     case UPDATE_DISCOVERED_READERS = "didUpdateDiscoveredReaders"
@@ -27,7 +28,7 @@ enum ReactNativeConstants: String, CaseIterable {
 }
 
 @objc(StripeTerminalReactNative)
-class StripeTerminalReactNative: RCTEventEmitter, DiscoveryDelegate, MobileReaderDelegate, TerminalDelegate, OfflineDelegate, InternetReaderDelegate, TapToPayReaderDelegate, ReaderDelegate {
+class StripeTerminalReactNative: RCTEventEmitter, DiscoveryDelegate, MobileReaderDelegate, TerminalDelegate, OfflineDelegate, InternetReaderDelegate, TapToPayReaderDelegate, ReaderDelegate, NFCNDEFReaderSessionDelegate {
 
     var discoveredReadersList: [Reader]? = nil
     var paymentIntents: [AnyHashable : PaymentIntent] = [:]
@@ -61,6 +62,8 @@ class StripeTerminalReactNative: RCTEventEmitter, DiscoveryDelegate, MobileReade
     var confirmSetupIntentCancelable: Cancelable? = nil
     var confirmRefundCancelable: Cancelable? = nil
     var loggingToken: String? = nil
+    var ndefWriteCompletion: ((Bool, Error?) -> Void)? = nil
+    var urlToWrite: String? = nil
 
     func terminal(_ terminal: Terminal, didUpdateDiscoveredReaders readers: [Reader]) {
         discoveredReadersList = readers
@@ -1132,14 +1135,14 @@ class StripeTerminalReactNative: RCTEventEmitter, DiscoveryDelegate, MobileReade
                 if let writeError = writeError {
                     let errorDict = Errors.createError(code: ErrorCode.unexpectedSdkError, message: "Failed to write URL to NFC tag: \(writeError.localizedDescription)")
                     let result: [String: Any] = [
-                      "collectedData": Mappers.mapFromCollectedData(collectedData),
-                      "error": errorDict["error"] ?? [:]
+                        "collectedData": Mappers.mapFromCollectedData(collectedData),
+                        "error": errorDict["error"] ?? [:]
                     ]
                     resolve(result)
                 } else {
                     let result: [String: Any] = [
-                      "collectedData": Mappers.mapFromCollectedData(collectedData),
-                      "writeSuccess": writeSuccess
+                        "collectedData": Mappers.mapFromCollectedData(collectedData),
+                        "writeSuccess": writeSuccess
                     ]
                     resolve(result)
                 }
@@ -1148,22 +1151,19 @@ class StripeTerminalReactNative: RCTEventEmitter, DiscoveryDelegate, MobileReade
     }
     
     private func writeNDEFURLToTag(url: String, tagId: String?, completion: @escaping (Bool, Error?) -> Void) {
-        // This is a simplified implementation
-        // In a real implementation, you would need to:
-        // 1. Use Core NFC framework to detect and connect to the NFC tag
-        // 2. Create an NDEF message with the URL
-        // 3. Write the NDEF message to the tag
-        
         guard #available(iOS 13.0, *) else {
             completion(false, NSError(domain: "StripeTerminalReactNative", code: -1, userInfo: [NSLocalizedDescriptionKey: "NFC writing requires iOS 13.0 or later"]))
             return
         }
         
-        // For now, simulate success since implementing full NFC writing requires additional framework integration
-        // In production, you would implement the actual NFC writing logic here
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            completion(true, nil)
-        }
+        // Create NDEF writer session
+        let ndefSession = NFCNDEFReaderSession(delegate: self, queue: nil, invalidateAfterFirstRead: false)
+        ndefSession.alertMessage = "Hold your iPhone near the NFC tag to write URL"
+        ndefSession.begin()
+        
+        // Store completion for later use
+        self.ndefWriteCompletion = completion
+        self.urlToWrite = url
     }
 
     @objc(clearCachedCredentials:rejecter:)
@@ -1660,5 +1660,88 @@ class StripeTerminalReactNative: RCTEventEmitter, DiscoveryDelegate, MobileReade
     func readerDidReportLowBatteryWarning(_ reader: Reader) {
         let result = "LOW BATTERY"
         sendEvent(withName: ReactNativeConstants.REPORT_LOW_BATTERY_WARNING.rawValue, body: ["result": result])
+    }
+    
+    // MARK: - NFCNDEFReaderSessionDelegate
+    
+    @available(iOS 13.0, *)
+    func readerSession(_ session: NFCNDEFReaderSession, didInvalidateWithError error: Error) {
+        DispatchQueue.main.async {
+            self.ndefWriteCompletion?(false, error)
+            self.ndefWriteCompletion = nil
+            self.urlToWrite = nil
+        }
+    }
+    
+    @available(iOS 13.0, *)
+    func readerSession(_ session: NFCNDEFReaderSession, didDetectNDEFs messages: [NFCNDEFMessage]) {
+        // This method is called when reading NDEF messages, not needed for writing
+    }
+    
+    @available(iOS 13.0, *)
+    func readerSession(_ session: NFCNDEFReaderSession, didDetect tags: [NFCNDEFTag]) {
+        guard let tag = tags.first, let urlToWrite = self.urlToWrite else {
+            session.invalidate(errorMessage: "Unable to get NFC tag or URL")
+            return
+        }
+        
+        session.connect(to: tag) { error in
+            if let error = error {
+                session.invalidate(errorMessage: "Failed to connect to tag")
+                DispatchQueue.main.async {
+                    self.ndefWriteCompletion?(false, error)
+                    self.ndefWriteCompletion = nil
+                    self.urlToWrite = nil
+                }
+                return
+            }
+            
+            tag.queryNDEFStatus { status, capacity, error in
+                guard error == nil, status == .readWrite else {
+                    session.invalidate(errorMessage: "Tag is not writable")
+                    DispatchQueue.main.async {
+                        let writeError = NSError(domain: "StripeTerminalReactNative", code: -1, userInfo: [NSLocalizedDescriptionKey: "Tag is not writable"])
+                        self.ndefWriteCompletion?(false, writeError)
+                        self.ndefWriteCompletion = nil
+                        self.urlToWrite = nil
+                    }
+                    return
+                }
+                
+                // Create NDEF URL record
+                guard let url = URL(string: urlToWrite),
+                      let urlRecord = NFCNDEFPayload.wellKnownTypeURIPayload(url: url) else {
+                    session.invalidate(errorMessage: "Invalid URL format")
+                    DispatchQueue.main.async {
+                        let writeError = NSError(domain: "StripeTerminalReactNative", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL format"])
+                        self.ndefWriteCompletion?(false, writeError)
+                        self.ndefWriteCompletion = nil
+                        self.urlToWrite = nil
+                    }
+                    return
+                }
+                
+                let ndefMessage = NFCNDEFMessage(records: [urlRecord])
+                
+                tag.writeNDEF(ndefMessage) { error in
+                    if let error = error {
+                        session.invalidate(errorMessage: "Failed to write URL to tag")
+                        DispatchQueue.main.async {
+                            self.ndefWriteCompletion?(false, error)
+                            self.ndefWriteCompletion = nil
+                            self.urlToWrite = nil
+                        }
+                    } else {
+                        session.alertMessage = "URL successfully written to NFC tag!"
+                        session.invalidate()
+                        DispatchQueue.main.async {
+                            self.ndefWriteCompletion?(true, nil)
+                            self.ndefWriteCompletion = nil
+                            self.urlToWrite = nil
+                        }
+                    }
+                }
+            }
+        }
     }
 }
