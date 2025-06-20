@@ -1130,12 +1130,23 @@ class StripeTerminalReactNative: RCTEventEmitter, DiscoveryDelegate, MobileReade
             // Now write the URL to the NFC tag
             self?.writeNDEFURLToTag(url: url, tagId: collectedData.nfcUid) { writeSuccess, writeError in
                 if let writeError = writeError {
-                    var result = ["collectedData": Mappers.mapFromCollectedData(collectedData)]
-                    result["error"] = Errors.createError(code: ErrorCode.unexpectedSdkError, message: "Failed to write URL to NFC tag: \(writeError.localizedDescription)")
+                    // var result = ["collectedData": Mappers.mapFromCollectedData(collectedData)]
+                    // result["error"] = Errors.createError(code: ErrorCode.unexpectedSdkError, message: "Failed to write URL to NFC tag: \(writeError.localizedDescription)")
+
+                    let errorDict = Errors.createError(code: ErrorCode.unexpectedSdkError, message: "Failed to write URL to NFC tag:
+     \(writeError.localizedDescription)")
+                    let result: [String: Any] = [
+                      "collectedData": Mappers.mapFromCollectedData(collectedData),
+                      "error": errorDict["error"] ?? [:]
+                    ]
                     resolve(result)
                 } else {
-                    var result = ["collectedData": Mappers.mapFromCollectedData(collectedData)]
-                    result["writeSuccess"] = writeSuccess
+                    // var result = ["collectedData": Mappers.mapFromCollectedData(collectedData)]
+                    // result["writeSuccess"] = writeSuccess
+                    let result: [String: Any] = [
+                      "collectedData": Mappers.mapFromCollectedData(collectedData),
+                      "writeSuccess": writeSuccess
+                    ]
                     resolve(result)
                 }
             }
