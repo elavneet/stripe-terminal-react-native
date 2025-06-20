@@ -880,6 +880,26 @@ export async function collectData(
   }, 'collectData')();
 }
 
+export async function collectTagIdAndWriteURL(params: {
+  url: string;
+  enableCustomerCancellation?: boolean;
+}): Promise<{
+  collectedData?: import('./types').CollectedData;
+  writeSuccess?: boolean;
+  error?: StripeError;
+}> {
+  return Logger.traceSdkMethod(async (innerParams) => {
+    try {
+      const response = await StripeTerminalSdk.collectTagIdAndWriteURL(innerParams);
+      return response;
+    } catch (error) {
+      return {
+        error: error as any,
+      };
+    }
+  }, 'collectTagIdAndWriteURL')(params);
+}
+
 export async function cancelReaderReconnection(): Promise<{
   error?: StripeError;
 }> {

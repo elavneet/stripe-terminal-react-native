@@ -69,6 +69,7 @@ import {
   collectInputs,
   cancelCollectInputs,
   collectData,
+  collectTagIdAndWriteURL,
   cancelReaderReconnection,
   supportsReadersOfType,
   getPaymentStatus,
@@ -1007,6 +1008,23 @@ export function useStripeTerminal(props?: Props) {
     [_isInitialized, setLoading]
   );
 
+  const _collectTagIdAndWriteURL = useCallback(
+    async (params: { url: string; enableCustomerCancellation?: boolean }) => {
+      if (!_isInitialized()) {
+        console.error(NOT_INITIALIZED_ERROR_MESSAGE);
+        throw Error(NOT_INITIALIZED_ERROR_MESSAGE);
+      }
+      setLoading(true);
+
+      const response = await collectTagIdAndWriteURL(params);
+
+      setLoading(false);
+
+      return response;
+    },
+    [_isInitialized, setLoading]
+  );
+
   const _cancelReaderReconnection = useCallback(async () => {
     if (!_isInitialized()) {
       console.error(NOT_INITIALIZED_ERROR_MESSAGE);
@@ -1103,6 +1121,7 @@ export function useStripeTerminal(props?: Props) {
     collectInputs: _collectInputs,
     cancelCollectInputs: _cancelCollectInputs,
     collectData: _collectData,
+    collectTagIdAndWriteURL: _collectTagIdAndWriteURL,
     cancelReaderReconnection: _cancelReaderReconnection,
     supportsReadersOfType: _supportsReadersOfType,
     setTapToPayUxConfiguration: _setTapToPayUxConfiguration,

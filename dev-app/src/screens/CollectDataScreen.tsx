@@ -20,7 +20,7 @@ export default function CollectDataScreen() {
   const [enableCustomerCancellation, setEnableCustomerCancellation] =
     useState(false);
 
-  const { collectData } = useStripeTerminal();
+  const { collectData, collectTagIdAndWriteURL } = useStripeTerminal();
 
   const _collectMagstripeData = async () => {
     clearLogs();
@@ -130,6 +130,59 @@ export default function CollectDataScreen() {
     }
   };
 
+  const _collectTagIdAndWriteURL = async () => {
+    clearLogs();
+    navigation.navigate('LogListScreen', {});
+
+    addLogs({
+      name: 'Collect Tag ID and Write URL',
+      events: [
+        {
+          name: 'Collect Tag ID and Write URL',
+          description: 'terminal.collectTagIdAndWriteURL',
+        },
+      ],
+    });
+
+    const { collectedData, writeSuccess, error } = await collectTagIdAndWriteURL({
+      url: 'https://stripe.com',
+      enableCustomerCancellation: enableCustomerCancellation,
+    });
+
+    if (error) {
+      addLogs({
+        name: 'Collect Tag ID and Write URL',
+        events: [
+          {
+            name: 'Failed',
+            description: 'terminal.collectTagIdAndWriteURL',
+            metadata: {
+              errorCode: error.code,
+              errorMessage: error.message,
+            },
+          },
+        ],
+      });
+    } else if (collectedData) {
+      addLogs({
+        name: 'Collect Tag ID and Write URL',
+        events: [
+          {
+            name: 'Success',
+            description: 'terminal.collectTagIdAndWriteURL',
+            metadata: {
+              stripeId: collectedData.stripeId,
+              nfcUid: collectedData.nfcUid,
+              created: collectedData.created,
+              livemode: String(collectedData.livemode),
+              writeSuccess: String(writeSuccess),
+            },
+          },
+        ],
+      });
+    }
+  };
+
   return (
     <KeyboardAwareScrollView
       style={styles.container}
@@ -158,6 +211,11 @@ export default function CollectDataScreen() {
           color={colors.blue}
           title="Collect NFC UID"
           onPress={_collectNfcUid}
+        />
+        <ListItem
+          color={colors.blue}
+          title="Collect NFC UID and Write URL"
+          onPress={_collectTagIdAndWriteURL}
         />
       </List>
     </KeyboardAwareScrollView>

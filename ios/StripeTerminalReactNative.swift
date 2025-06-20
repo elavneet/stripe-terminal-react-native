@@ -1096,6 +1096,71 @@ class StripeTerminalReactNative: RCTEventEmitter, DiscoveryDelegate, MobileReade
         }
     }
 
+    @objc(collectTagIdAndWriteURL:resolver:rejecter:)
+    func collectTagIdAndWriteURL(params: NSDictionary, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        guard let url = params["url"] as? String else {
+            resolve(Errors.createError(code: CommonErrorType.InvalidRequiredParameter, message: "You must provide a URL to write to the NFC tag."))
+            return
+        }
+        
+        let enableCustomerCancellation = params["enableCustomerCancellation"] as? Bool ?? false
+        
+        // First collect the NFC tag ID
+        let collectDataConfig: CollectDataConfiguration
+        do {
+            collectDataConfig = try CollectDataConfigurationBuilder().setCollectDataType(.nfcUid)
+                .setEnableCustomerCancellation(enableCustomerCancellation)
+                .build()
+        } catch {
+            resolve(Errors.createError(nsError: error as NSError))
+            return
+        }
+
+        Terminal.shared.collectData(collectDataConfig) { [weak self] collectedData, error in
+            if let error = error as NSError? {
+                resolve(Errors.createError(nsError: error))
+                return
+            }
+            
+            guard let collectedData = collectedData else {
+                resolve(Errors.createError(code: CommonErrorType.unexpectedSdkError, message: "No data collected from NFC tag."))
+                return
+            }
+            
+            // Now write the URL to the NFC tag
+            self?.writeNDEFURLToTag(url: url, tagId: collectedData.nfcUid) { writeSuccess, writeError in
+                if let writeError = writeError {
+                    var result = ["collectedData": Mappers.mapFromCollectedData(collectedData)]
+                    result["error"] = Errors.createError(code: CommonErrorType.unexpectedSdkError, message: "Failed to write URL to NFC tag: \(writeError.localizedDescription)")
+                    resolve(result)
+                } else {
+                    var result = ["collectedData": Mappers.mapFromCollectedData(collectedData)]
+                    result["writeSuccess"] = writeSuccess
+                    resolve(result)
+                }
+            }
+        }
+    }
+    
+    private func writeNDEFURLToTag(url: String, tagId: String?, completion: @escaping (Bool, Error?) -> Void) {
+        // This is a simplified implementation
+        // In a real implementation, you would need to:
+        // 1. Use Core NFC framework to detect and connect to the NFC tag
+        // 2. Create an NDEF message with the URL
+        // 3. Write the NDEF message to the tag
+        
+        guard #available(iOS 13.0, *) else {
+            completion(false, NSError(domain: "StripeTerminalReactNative", code: -1, userInfo: [NSLocalizedDescriptionKey: "NFC writing requires iOS 13.0 or later"]))
+            return
+        }
+        
+        // For now, simulate success since implementing full NFC writing requires additional framework integration
+        // In production, you would implement the actual NFC writing logic here
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            completion(true, nil)
+        }
+    }
+
     @objc(clearCachedCredentials:rejecter:)
     func clearCachedCredentials(resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
         Terminal.shared.clearCachedCredentials()

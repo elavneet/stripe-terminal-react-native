@@ -164,6 +164,14 @@ export interface StripeTerminalSdkType {
     error?: StripeError;
   }>;
   collectData(params: CollectDataParams): Promise<CollectDataResultType>;
+  collectTagIdAndWriteURL(params: {
+    url: string;
+    enableCustomerCancellation?: boolean;
+  }): Promise<{
+    collectedData?: import('./types').CollectedData;
+    writeSuccess?: boolean;
+    error?: StripeError;
+  }>;
   cancelReaderReconnection(): Promise<{
     error?: StripeError;
   }>;
